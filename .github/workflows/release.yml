@@ -1,15 +1,58 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: bump
+        run: |
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+
+          MAJOR=$(echo "$LATEST" | sed 's/^v//' | cut -d. -f1)
+          MINOR=$(echo "$LATEST" | sed 's/^v//' | cut -d. -f2)
+          PATCH=$(echo "$LATEST" | sed 's/^v//' | cut -d. -f3)
+
+          case "${{ inputs.bump }}" in
+            patch) PATCH=$((PATCH + 1)) ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+          esac
+
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Bumping ${LATEST} → ${NEW_TAG} (${{ inputs.bump }})"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "${{ steps.bump.outputs.new_tag }}" -m "Release ${{ steps.bump.outputs.new_tag }}"
+          git push origin "${{ steps.bump.outputs.new_tag }}"
+
   test:
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,8 +62,8 @@ jobs:
       - run: go test ./internal/graph/ ./internal/loader/ ./internal/query/
       - run: go vet ./...
 
-  release:
-    needs: test
+  build:
+    needs: [version, test]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -36,6 +79,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.version.outputs.new_tag }}
         run: |
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
@@ -43,7 +87,8 @@ jobs:
           SUFFIX="${GOOS}-${GOARCH}"
           mkdir -p dist
 
-          go build -ldflags="-s -w" -o "dist/cartograph-${SUFFIX}${EXT}" ./cmd/cartograph
+          go build -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "dist/cartograph-${SUFFIX}${EXT}" ./cmd/cartograph
 
           cd dist
           if [ "$GOOS" = "windows" ]; then
@@ -55,6 +100,8 @@ jobs:
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.version.outputs.new_tag }}
+          generate_release_notes: true
           files: |
             dist/cartograph-*.tar.gz
             dist/cartograph-*.zip

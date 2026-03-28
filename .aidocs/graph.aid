@@ -1,0 +1,171 @@
+@module cartograph/graph
+@lang go
+@version 0.1.0
+@purpose Core semantic graph — nodes are code entities, edges are relationships between them
+
+---
+
+@type Graph
+@kind struct
+@purpose The central data structure. Holds all nodes and edges, supports indexed queries.
+@fields
+  nodes: dict[NodeID, Node] — All nodes indexed by ID for O(1) lookup
+  edges: [Edge] — All edges in the graph
+  byKind: dict[NodeKind, [NodeID]] — Index: node kind → node IDs (fast "all functions" query)
+  byName: dict[str, [NodeID]] — Index: name → node IDs (fast name lookup, handles overloads)
+  byType: dict[str, [NodeID]] — Index: type name → nodes that reference this type
+  outEdges: dict[NodeID, [Edge]] — Index: source → outgoing edges (fast forward traversal)
+  inEdges: dict[NodeID, [Edge]] — Index: target → incoming edges (fast reverse traversal)
+@constructors NewGraph()
+@methods AddNode, AddEdge, NodeByID, NodesByKind, NodesByName, Stats
+@invariants
+  - All edge source/target NodeIDs must exist in the nodes map
+  - Indexes (byKind, byName, byType, outEdges, inEdges) are always consistent with nodes/edges
+  - Graph is append-only during construction; no node/edge deletion
+  - Thread-safe for concurrent reads after construction is complete
+
+---
+
+@type Node
+@kind struct
+@purpose A single code entity: function, type, field, method, constant, or module.
+@fields
+  ID: NodeID — Unique identifier (hash of module + kind + name)
+  Kind: NodeKind — What kind of code entity this is
+  Name: str — Short name (e.g., "Get", "HttpClient", "timeout")
+  QualifiedName: str — Full path (e.g., "myapp/client.HttpClient.Get")
+  Module: str — AID module this node was extracted from
+  Type: str — AID type notation (e.g., "str", "int", "HttpResponse?")
+  Signature: str — For functions: the @sig value. Empty for non-functions.
+  Purpose: str — From @purpose field
+  SourceFile: str — File path from [src:] reference, if available
+  SourceLine: int — Line number from [src:] reference, if available
+  Metadata: dict[str, str] — Extra fields (effects, thread_safety, complexity, etc.)
+
+---
+
+@type NodeID
+@kind newtype
+@purpose Unique identifier for a node. Deterministic hash of module + kind + name.
+@fields
+  (inner): str
+
+---
+
+@type NodeKind
+@kind enum
+@purpose Classification of code entities in the graph.
+@variants
+  | Function — standalone function
+  | Method — function bound to a type
+  | Type — struct, class, enum, union, alias, newtype
+  | Trait — interface or protocol
+  | Field — field on a struct/class
+  | Constant — module-level constant or sentinel error
+  | Module — the module itself (root node for a package)
+  | Workflow — a workflow block (connects to its step functions)
+
+---
+
+@type Edge
+@kind struct
+@purpose A directed relationship between two nodes.
+@fields
+  Source: NodeID — Where the relationship starts
+  Target: NodeID — Where the relationship points
+  Kind: EdgeKind — What kind of relationship this is
+  Label: str — Optional description (e.g., error type name, field name)
+  Weight: f64 — For ranking query results (default 1.0)
+
+---
+
+@type EdgeKind
+@kind enum
+@purpose Classification of relationships between code entities.
+@variants
+  | Calls — Source function calls target function
+  | Returns — Source function returns target type
+  | Accepts — Source function accepts target type as parameter
+  | ProducesError — Source function can produce target error type
+  | PropagatesError — Source function propagates errors from target function
+  | HasField — Source type has target as a field
+  | HasMethod — Source type has target as a method
+  | Implements — Source type implements target trait/interface
+  | Extends — Source type extends target type
+  | References — Source mentions target (catch-all for weaker relationships)
+  | ReadsField — Source function reads target field
+  | WritesField — Source function writes target field
+  | DependsOn — Source module depends on target module
+  | StepOf — Source workflow step involves target function
+
+---
+
+@fn NewGraph
+@purpose Create an empty graph with initialized indexes
+@sig () -> Graph?
+
+---
+
+@fn Graph.AddNode
+@purpose Add a node to the graph and update all indexes
+@sig (mut self, node: Node) -> None
+@pre node.ID must not already exist in the graph
+@post Node is queryable via all indexes immediately
+
+---
+
+@fn Graph.AddEdge
+@purpose Add an edge to the graph and update forward/reverse indexes
+@sig (mut self, edge: Edge) -> None
+@pre edge.Source and edge.Target must exist in nodes map
+@post Edge is traversable via outEdges and inEdges immediately
+
+---
+
+@fn Graph.NodeByID
+@purpose Look up a node by its unique ID
+@sig (self, id: NodeID) -> Node? ! error
+
+---
+
+@fn Graph.NodesByKind
+@purpose Get all nodes of a specific kind
+@sig (self, kind: NodeKind) -> [Node]
+
+---
+
+@fn Graph.NodesByName
+@purpose Get all nodes matching a name (may return multiple for overloaded names)
+@sig (self, name: str) -> [Node]
+
+---
+
+@fn Graph.Stats
+@purpose Return summary statistics about the graph
+@sig (self) -> GraphStats
+
+---
+
+@type GraphStats
+@kind struct
+@purpose Summary statistics for a loaded graph
+@fields
+  NodeCount: int — Total nodes
+  EdgeCount: int — Total edges
+  NodesByKind: dict[str, int] — Count per NodeKind
+  EdgesByKind: dict[str, int] — Count per EdgeKind
+  Modules: int — Number of distinct modules
+
+---
+
+@workflow build_graph
+@purpose How the graph is constructed from AID files
+@steps
+  1. Parse: read all .aid files from .aidocs/ directory
+  2. Extract nodes: for each entry (@fn, @type, @trait, @const), create a Node
+  3. Extract edges: from @related, @errors, @sig params/returns, @extends, @implements
+  4. Index: build byKind, byName, byType, outEdges, inEdges maps
+  5. Validate: every edge source/target must resolve to a node
+@antipatterns
+  - Don't build edges for @related references that don't resolve to nodes — skip with warning
+  - Don't assume names are unique — use QualifiedName for disambiguation

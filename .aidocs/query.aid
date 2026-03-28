@@ -1,0 +1,176 @@
+@module cartograph/query
+@lang go
+@version 0.1.0
+@purpose Query engine — traverses the semantic graph to answer natural language questions about code
+@depends [cartograph/graph]
+
+---
+
+@type QueryEngine
+@kind struct
+@purpose Executes queries against a Graph. Supports the 5 core query types plus graph traversal primitives.
+@fields
+  graph: graph.Graph? — The semantic graph to query against
+  maxDepth: int — Maximum traversal depth for recursive queries. Default 10. Range [1, 50].
+@constructors NewQueryEngine(graph: Graph?, maxDepth?: int)
+@methods ErrorProducers, FieldTouchers, CallStack, TypeDependents, SideEffects, Traverse
+
+---
+
+@fn QueryEngine.ErrorProducers
+@purpose "What produces this error?" — Find every function that can return a given error type, including transitive propagation chains.
+@sig (self, errorType: str) -> QueryResult ! error
+@params
+  errorType: Name of the error type (e.g., "ConnectionError", "HttpError.Timeout"). Matched against Node.Name and Edge.Label.
+@returns QueryResult with paths from error origin through every propagation chain to callers
+@post Each path in the result traces: origin function → (ProducesError) → intermediate functions → (PropagatesError) → ... → top-level callers
+@errors
+  NotFoundError — no node matching errorType exists in the graph
+
+---
+
+@fn QueryEngine.FieldTouchers
+@purpose "What touches this field?" — Find every function that reads or writes a given field, with the direction of access.
+@sig (self, typeName: str, fieldName: str) -> QueryResult ! error
+@params
+  typeName: Name of the type that owns the field (e.g., "User", "HttpConfig")
+  fieldName: Name of the field (e.g., "email", "timeout")
+@returns QueryResult with nodes grouped by access type: readers, writers, transformers
+@errors
+  NotFoundError — type or field not found in the graph
+
+---
+
+@fn QueryEngine.CallStack
+@purpose "What's the call stack?" — Given a function, trace all callers (upward) and all callees (downward) to build the full call tree.
+@sig (self, functionName: str, direction: TraversalDirection) -> QueryResult ! error
+@params
+  functionName: Qualified or short name of the function (e.g., "HttpClient.Get", "processRequest")
+  direction: Up (callers only), Down (callees only), or Both
+@returns QueryResult with tree of callers/callees up to maxDepth
+@errors
+  NotFoundError — function not found
+  AmbiguousError — multiple functions match name (use qualified name)
+
+---
+
+@fn QueryEngine.TypeDependents
+@purpose "What depends on this type?" — Find every function, field, and method that references a given type.
+@sig (self, typeName: str) -> QueryResult ! error
+@params
+  typeName: Name of the type (e.g., "HttpResponse", "Config")
+@returns QueryResult with all nodes that accept, return, contain, or extend the type
+
+---
+
+@fn QueryEngine.SideEffects
+@purpose "What are the side effects?" — Trace through all callees of a function and report effects.
+@sig (self, functionName: str) -> EffectReport ! error
+@params
+  functionName: Function to analyze
+@returns EffectReport listing all effects (Net, Fs, Db, etc.) from the entire call subtree
+@errors
+  NotFoundError — function not found
+
+---
+
+@fn QueryEngine.Traverse
+@purpose Low-level graph traversal primitive. Walk edges from a starting node, filtering by edge kind and direction.
+@sig (self, startID: NodeID, edgeKinds: [EdgeKind], direction: TraversalDirection, maxDepth: int) -> [TraversalPath]
+@params
+  startID: Node to start from
+  edgeKinds: Only follow edges of these kinds. Empty = follow all.
+  direction: Forward (follow outEdges), Reverse (follow inEdges), or Both
+  maxDepth: Maximum hops. Range [1, 50].
+@returns List of paths found, each path being a sequence of (Node, Edge) pairs
+@post Cycle detection: nodes are visited at most once per path. Cycles are reported but don't cause infinite loops.
+
+---
+
+@type TraversalDirection
+@kind enum
+@variants
+  | Forward — Follow outgoing edges (source → target)
+  | Reverse — Follow incoming edges (target → source)
+  | Both — Follow edges in both directions
+
+---
+
+@type TraversalPath
+@kind struct
+@purpose A single path through the graph found by Traverse.
+@fields
+  Nodes: [Node] — Nodes visited in order
+  Edges: [Edge] — Edges traversed (len = len(Nodes) - 1)
+  Depth: int — Number of hops in this path
+
+---
+
+@type QueryResult
+@kind struct
+@purpose Result of a high-level query. Contains matching paths grouped by relevance.
+@fields
+  Query: str — The original query string or description
+  Paths: [TraversalPath] — All paths found, sorted by relevance (shortest first)
+  Summary: str — Human-readable summary of findings
+  NodeCount: int — Total unique nodes in all paths
+  MaxDepth: int — Deepest path found
+
+---
+
+@type EffectReport
+@kind struct
+@purpose Result of a SideEffects query. Groups effects by category.
+@fields
+  Function: str — The function that was analyzed
+  Effects: dict[str, [Node]] — Effect category → functions that produce it (e.g., "Net" → [httpCall, dnsLookup])
+  TotalCallees: int — Number of functions in the call subtree
+  MaxDepth: int — Deepest call chain found
+
+---
+
+@type NotFoundError
+@kind struct
+@purpose Returned when a query target doesn't exist in the graph.
+@fields
+  Entity: str — What was searched for
+  Kind: str — What kind of entity (function, type, field, error)
+@extends error
+
+---
+
+@type AmbiguousError
+@kind struct
+@purpose Returned when a query matches multiple entities and can't disambiguate.
+@fields
+  Name: str — The ambiguous name
+  Candidates: [str] — Qualified names of all matches
+@extends error
+
+---
+
+@workflow error_trace
+@purpose How ErrorProducers traces an error from origin to all callers
+@steps
+  1. Find all nodes with ProducesError edge targeting the error type
+  2. For each producer, reverse-traverse Calls edges (who calls this function?)
+  3. At each caller, check if it has PropagatesError for the same error type
+  4. If yes, continue upward (this caller also exposes the error)
+  5. If no, stop (this caller handles the error internally)
+  6. Collect all paths into QueryResult, sorted shortest-first
+@antipatterns
+  - Don't assume all callers propagate the error. Only follow callers with PropagatesError edges.
+  - Don't traverse past maxDepth — deep error chains are usually a code smell, not a feature.
+
+---
+
+@workflow call_stack_reconstruction
+@purpose How CallStack builds the full call tree without runtime execution
+@steps
+  1. Find the target function node by name
+  2. If direction is Up or Both: reverse-traverse Calls edges to find all callers, recursively
+  3. If direction is Down or Both: forward-traverse Calls edges to find all callees, recursively
+  4. Build tree structure with the target function as root
+  5. Annotate each node with source file and line from [src:] references
+@antipatterns
+  - Don't confuse static call graph with runtime call stack. Static analysis shows ALL possible callers, not the actual runtime sequence. Polymorphic dispatch means some edges may not be taken at runtime.

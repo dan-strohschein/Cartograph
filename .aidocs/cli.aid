@@ -1,0 +1,71 @@
+@module cartograph/cli
+@lang go
+@version 0.1.0
+@purpose CLI interface for querying the semantic code graph
+@depends [cartograph/graph, cartograph/query, cartograph/loader]
+
+---
+
+@fn main
+@purpose Entry point. Parses CLI args, loads graph, runs query, prints results.
+@sig () -> None
+@params
+  Global flags:
+    --dir: Path to .aidocs/ directory. Default: auto-discover via walk-up protocol.
+    --format: Output format. One of: tree (default), json.
+    --depth: Max traversal depth. Default 10. Range [1, 50].
+
+---
+
+@workflow cli_usage
+@purpose How the CLI is invoked for each query type
+@steps
+  1. cartograph errors <ErrorType> — "What produces this error?"
+     Example: cartograph errors ConnectionError
+     Example: cartograph errors HttpError.Timeout
+  2. cartograph field <Type.Field> — "What touches this field?"
+     Example: cartograph field User.email
+     Example: cartograph field HttpConfig.timeout
+  3. cartograph callstack <function> [--up|--down|--both] — "What's the call stack?"
+     Example: cartograph callstack HttpClient.Get --up
+     Example: cartograph callstack processRequest --both
+  4. cartograph depends <Type> — "What depends on this type?"
+     Example: cartograph depends HttpResponse
+  5. cartograph effects <function> — "What are the side effects?"
+     Example: cartograph effects SaveDocument
+
+---
+
+@decision output_format
+@purpose How query results are displayed
+@chosen Indented tree format for paths, summary line at top
+@rejected JSON output (harder to scan), table format (doesn't show tree structure)
+@rationale Developers and AI agents both need to quickly scan the result. A tree with indentation shows the path structure naturally:
+
+  ConnectionError produced by:
+    └─ HttpClient.Get (client.go:45)
+       └─ called by ApiHandler.HandleRequest (handler.go:112)
+          └─ called by Router.Dispatch (router.go:67)
+
+---
+
+@decision graph_source
+@purpose Where the graph data comes from
+@chosen AID files only (.aidocs/ directory)
+@rejected Direct source code parsing (duplicates aid-gen-go), LSP integration (requires running language server)
+@rationale AID files are the contract. The graph represents what AID says, not what the code does. If AID is wrong, that's a documentation bug — fix the AID, not the graph. This keeps Cartograph simple and language-agnostic.
+
+---
+
+@decision caching
+@purpose Whether to cache the built graph
+@chosen No caching in v0.1. Rebuild on every invocation.
+@rejected File-based cache (adds staleness concerns), in-memory daemon (adds process management)
+@rationale For a project with 69 AID files (SyndrDB scale), graph construction takes <100ms. Caching adds complexity without meaningful benefit until projects reach thousands of AID files.
+
+---
+
+@antipatterns
+  - Don't parse source code. Cartograph reads AID files only. Source analysis is aid-gen-go's job.
+  - Don't assume the graph is complete. Selective loading means some edges point to nodes not in the graph. Handle gracefully.
+  - Don't conflate static call graph with runtime behavior. Cartograph shows ALL possible paths, not the path a specific execution takes. Polymorphism, dynamic dispatch, and conditional logic mean some edges may never be traversed at runtime.

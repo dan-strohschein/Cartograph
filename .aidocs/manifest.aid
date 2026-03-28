@@ -1,0 +1,38 @@
+@manifest
+@project Cartograph
+@aid_version 0.1
+
+---
+
+@package cartograph/graph
+@aid_file graph.aid
+@purpose Core semantic graph — nodes are code entities, edges are relationships
+@layer skeleton
+@key_risks indexes must stay consistent with nodes/edges, NodeID uniqueness, cycle detection in traversal
+
+---
+
+@package cartograph/query
+@aid_file query.aid
+@depends [cartograph/graph]
+@purpose Query engine — 5 core queries plus generic graph traversal
+@layer skeleton
+@key_risks maxDepth prevents infinite traversal, static vs runtime call graph distinction, ambiguous name resolution
+
+---
+
+@package cartograph/loader
+@aid_file loader.aid
+@depends [cartograph/graph, aidkit/parser]
+@purpose Loads AID files and builds the semantic graph
+@layer skeleton
+@key_risks unresolved edge targets from selective loading, edge extraction completeness from @sig/@errors/@related
+
+---
+
+@package cartograph/cli
+@aid_file cli.aid
+@depends [cartograph/graph, cartograph/query, cartograph/loader]
+@purpose CLI interface — 5 commands mapping to 5 query types
+@layer skeleton
+@key_risks graph built from AID only (not source), no caching in v0.1

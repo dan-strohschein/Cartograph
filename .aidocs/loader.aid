@@ -1,0 +1,77 @@
+@module cartograph/loader
+@lang go
+@version 0.1.0
+@purpose Loads AID files and builds the semantic graph from parsed content
+@depends [cartograph/graph, aidkit/parser]
+
+---
+
+@fn LoadFromDirectory
+@purpose Parse all .aid files in a directory and build a Graph
+@sig (dir: str) -> graph.Graph? ! error
+@params
+  dir: Path to .aidocs/ directory. Must contain .aid files.
+@returns Fully constructed and indexed Graph
+@post All nodes and edges extracted from AID files. Indexes built.
+@errors
+  error — directory not found, no .aid files, or parse errors
+
+---
+
+@fn LoadFromFiles
+@purpose Parse specific .aid files and build a Graph
+@sig (paths: [str]) -> graph.Graph? ! error
+@params
+  paths: Paths to .aid files to load
+@returns Graph built from the specified files only
+
+---
+
+@fn LoadWithManifest
+@purpose Use a manifest.aid to selectively load relevant packages
+@sig (manifestPath: str, relevantPackages: [str]) -> graph.Graph? ! error
+@params
+  manifestPath: Path to manifest.aid
+  relevantPackages: Package names to load. Their @depends chains are followed automatically.
+@returns Graph containing only the relevant packages and their dependencies
+@post Only loads AID files for packages in the relevantPackages list + their transitive @depends
+
+---
+
+@fn extractNodes
+@purpose Convert parsed AID entries into graph nodes
+@sig (aidFile: parser.AidFile?) -> [graph.Node]
+@post One node per @fn, @type, @trait, @const entry. Module-level node for the file itself.
+
+---
+
+@fn extractEdges
+@purpose Derive graph edges from AID field relationships
+@sig (aidFile: parser.AidFile?, nodes: dict[str, graph.NodeID]) -> [graph.Edge]
+@post Edges created from:
+  - @sig params → Accepts edges
+  - @sig return type → Returns edges
+  - @sig error types → ProducesError edges
+  - @errors entries → ProducesError edges with specific labels
+  - @related references → References edges
+  - @extends → Extends edges
+  - @implements → Implements edges
+  - @fields → HasField edges
+  - @methods → HasMethod edges
+  - @workflow steps → StepOf edges
+  - @depends → DependsOn edges
+
+---
+
+@workflow load_and_build
+@purpose How the loader constructs a graph from .aidocs/
+@steps
+  1. Discover: find all .aid files in directory (or use manifest for selective loading)
+  2. Parse: use aidkit/parser to parse each file into AidFile structs
+  3. Extract nodes: walk each AidFile, create Node for every entry
+  4. Extract edges: analyze @sig, @errors, @related, @extends, etc. to create Edge objects
+  5. Build graph: call graph.AddNode and graph.AddEdge for everything
+  6. Validate: warn on unresolved edge targets (reference to a node not in the graph)
+@antipatterns
+  - Don't fail on unresolved references — they may be in packages that weren't loaded. Warn instead.
+  - Don't load all .aid files for a large project — use manifest + relevantPackages for selective loading.

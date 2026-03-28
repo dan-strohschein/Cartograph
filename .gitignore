@@ -34,5 +34,9 @@ go.work.sum
 # Project binary
 /cartograph
 
+# Private plans — not for public repos
+LaunchPlan.md
+BusinessPlan.md
+
 # OS
 .DS_Store

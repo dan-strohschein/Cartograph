@@ -1,6 +1,6 @@
 # Cartograph
 
-A semantic code index that turns [AID](https://github.com/dan-strohschein/AID) files into a queryable graph of relationships between types, functions, errors, and data flows. Built to help AI coding agents answer structural questions about codebases using a fraction of the tokens.
+A semantic code index that turns [AID](https://github.com/dan-strohschein/AID-Docs) files into a queryable graph of relationships between types, functions, errors, and data flows. Built to help AI coding agents answer structural questions about codebases using a fraction of the tokens.
 
 ## How It Works
 

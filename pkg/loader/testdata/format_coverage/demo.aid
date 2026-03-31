@@ -1,0 +1,113 @@
+@module fmtcov/demo
+@lang go
+@version 0.1.0
+@purpose Hermetic AID format coverage for loader and query integration tests
+@depends [fmtcov/peer]
+
+---
+
+@type ErrKnown
+@kind struct
+@purpose Known error type referenced from @sig
+
+---
+
+@type Widget
+@kind struct
+@purpose Widget with fields and a method for HasMethod and FieldTouchers
+@fields
+  id: str — identifier
+  count: int — counter
+@methods TouchCount
+
+---
+
+@fn Widget.TouchCount
+@purpose Reads count field via method
+@sig (self) -> int
+
+---
+
+@trait Drawable
+@purpose Trait for implements edge
+@fields
+  z: int — layer
+
+---
+
+@type ConcreteWidget
+@kind struct
+@purpose Type with extends, implements, and related
+@extends [Widget]
+@implements [Drawable]
+@related [PeerDepTarget]
+
+---
+
+@const MaxWidgets
+@purpose Upper bound constant
+@type int
+
+---
+
+@fn MayFail
+@purpose Produces known error from sig and orphan error from @errors
+@sig () -> None ! ErrKnown
+@errors
+  OrphanError — not modeled as a type node
+
+---
+
+@fn ReadWidgetField
+@purpose Accepts Widget so FieldTouchers finds it for Widget.count
+@sig (w: Widget) -> None
+
+---
+
+@fn CalleeWithFx
+@purpose Callee tagged with Db effects for SideEffects
+@effects Db
+
+---
+
+@fn CallerChain
+@purpose Calls CalleeWithFx for call graph and SideEffects traversal
+@calls [CalleeWithFx]
+
+---
+
+@fn DependsEntry
+@purpose Entry-level depends on cross-module type
+@depends [PeerDepTarget]
+
+---
+
+@fn HelperFn
+@purpose Resolved via dotted @calls suffix
+@sig () -> None
+
+---
+
+@fn DottedCall
+@purpose Calls using qualified-style name; loader resolves HelperFn by suffix
+@calls [other.HelperFn]
+
+---
+
+@workflow demo_flow
+@purpose Workflow with steps referencing real functions
+@steps
+  1. RunPipeline — first step
+  2. FinalizePipeline — second step
+
+---
+
+@fn RunPipeline
+@purpose Step target for demo_flow
+@sig () -> None
+
+---
+
+@fn FinalizePipeline
+@purpose Step target for demo_flow
+@sig () -> None

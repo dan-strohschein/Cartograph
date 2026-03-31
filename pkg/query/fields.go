@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 // FieldTouchers finds every function that reads or writes a given field.

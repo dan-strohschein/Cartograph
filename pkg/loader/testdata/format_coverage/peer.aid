@@ -1,0 +1,10 @@
+@module fmtcov/peer
+@lang go
+@version 0.1.0
+@purpose Peer module for module-level DependsOn and cross-package type references
+
+---
+
+@type PeerDepTarget
+@kind struct
+@purpose Type used by fmtcov/demo for @related and entry @depends

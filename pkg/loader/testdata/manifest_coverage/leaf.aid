@@ -1,0 +1,10 @@
+@module fmtcov/leaf
+@lang go
+@version 0.1.0
+@purpose Leaf module with call into core
+
+---
+
+@fn LeafFn
+@purpose Entry point that calls core
+@calls [CoreHelper]

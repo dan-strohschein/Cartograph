@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/dan-strohschein/aidkit/pkg/parser"
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 // extractNodes converts parsed AID entries into graph nodes.
@@ -36,6 +36,31 @@ func extractNodes(af *parser.AidFile) []graph.Node {
 				nodes = append(nodes, fieldNodes...)
 			}
 		}
+	}
+
+	// Lock nodes from @lock annotations.
+	for _, ann := range af.Annotations {
+		if ann.Kind != "lock" || ann.Name == "" {
+			continue
+		}
+		n := graph.Node{
+			ID:            graph.MakeNodeID(module, graph.KindLock, ann.Name),
+			Kind:          graph.KindLock,
+			Name:          ann.Name,
+			QualifiedName: module + "." + ann.Name,
+			Module:        module,
+			Metadata:      make(map[string]string),
+		}
+		if f, ok := ann.Fields["purpose"]; ok {
+			n.Purpose = f.Value()
+		}
+		if f, ok := ann.Fields["kind"]; ok {
+			n.Type = f.Value()
+		}
+		if f, ok := ann.Fields["source_file"]; ok {
+			n.SourceFile = f.Value()
+		}
+		nodes = append(nodes, n)
 	}
 
 	// Workflow nodes.
@@ -243,11 +268,51 @@ func extractEdges(af *parser.AidFile, nodeIndex map[string]graph.NodeID) []graph
 			}
 		}
 
+		// @calls → Calls edges.
+		if f, ok := entry.Fields["calls"]; ok {
+			for _, callee := range parseList(f.Value()) {
+				if targetID, ok := nodeIndex[callee]; ok {
+					edges = append(edges, graph.Edge{Source: srcID, Target: targetID, Kind: graph.EdgeCalls, Label: callee})
+				} else if idx := strings.LastIndex(callee, "."); idx >= 0 {
+					// Cross-package call: "pkg.Func" or "obj.Method" — try the suffix alone.
+					// Go import aliases (e.g., "planner.WithSnapshotInfo") won't match
+					// qualified names ("chisel/resolve.WithSnapshotInfo"), but the simple
+					// name ("WithSnapshotInfo") will be in the index.
+					suffix := callee[idx+1:]
+					if targetID, ok := nodeIndex[suffix]; ok {
+						edges = append(edges, graph.Edge{Source: srcID, Target: targetID, Kind: graph.EdgeCalls, Label: suffix})
+					}
+				}
+			}
+		}
+
 		// @depends (entry-level) → DependsOn edges.
 		if f, ok := entry.Fields["depends"]; ok {
 			for _, dep := range parseList(f.Value()) {
 				if targetID, ok := nodeIndex[dep]; ok {
 					edges = append(edges, graph.Edge{Source: srcID, Target: targetID, Kind: graph.EdgeDependsOn, Label: dep})
+				}
+			}
+		}
+	}
+
+	// @lock annotations → Acquires edges (function → lock).
+	for _, ann := range af.Annotations {
+		if ann.Kind != "lock" {
+			continue
+		}
+		lockName := ann.Name
+		lockID := graph.MakeNodeID(module, graph.KindLock, lockName)
+
+		if f, ok := ann.Fields["acquired_by"]; ok {
+			for _, fn := range parseList(f.Value()) {
+				if fnID, ok := nodeIndex[fn]; ok {
+					edges = append(edges, graph.Edge{Source: fnID, Target: lockID, Kind: graph.EdgeAcquires, Label: lockName})
+				} else if idx := strings.LastIndex(fn, "."); idx >= 0 {
+					suffix := fn[idx+1:]
+					if fnID, ok := nodeIndex[suffix]; ok {
+						edges = append(edges, graph.Edge{Source: fnID, Target: lockID, Kind: graph.EdgeAcquires, Label: lockName})
+					}
 				}
 			}
 		}

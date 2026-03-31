@@ -1,0 +1,16 @@
+@manifest
+@project ManifestCoverage
+@aid_version 0.1
+
+---
+
+@package fmtcov/core
+@aid_file core.aid
+@purpose Core package for manifest selective load tests
+
+---
+
+@package fmtcov/leaf
+@aid_file leaf.aid
+@depends [fmtcov/core]
+@purpose Leaf package that depends on core

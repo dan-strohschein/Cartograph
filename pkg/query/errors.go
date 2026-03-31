@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 // ErrorProducers finds every function that can return a given error type,

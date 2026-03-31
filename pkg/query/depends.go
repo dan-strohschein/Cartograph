@@ -3,14 +3,14 @@ package query
 import (
 	"fmt"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 // TypeDependents finds every function, field, and method that references a given type.
 func (qe *QueryEngine) TypeDependents(typeName string) (*QueryResult, error) {
 	typeNode, err := qe.resolveNode(typeName, graph.KindType, graph.KindTrait)
 	if err != nil {
-		return nil, &NotFoundError{Entity: typeName, Kind: "type"}
+		return nil, err
 	}
 
 	var allPaths []TraversalPath

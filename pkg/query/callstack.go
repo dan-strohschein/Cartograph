@@ -3,7 +3,7 @@ package query
 import (
 	"fmt"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 // CallStack traces all callers (upward) and/or callees (downward) of a function.
@@ -33,10 +33,16 @@ func (qe *QueryEngine) CallStack(functionName string, direction TraversalDirecti
 		dirStr = "callers"
 	}
 
+	count := max(0, len(uniqueNodes)-1)
+	summary := fmt.Sprintf("Found %d %s of %s across %d path(s)", count, dirStr, functionName, len(paths))
+	if count == 0 {
+		summary += fmt.Sprintf(". %s may not be referenced in any @calls annotation — check AID file coverage.", functionName)
+	}
+
 	return &QueryResult{
 		Query:     fmt.Sprintf("CallStack(%s, %s)", functionName, dirStr),
 		Paths:     paths,
-		Summary:   fmt.Sprintf("Found %d %s of %s across %d path(s)", len(uniqueNodes)-1, dirStr, functionName, len(paths)),
+		Summary:   summary,
 		NodeCount: len(uniqueNodes),
 		MaxDepth:  maxDepth,
 	}, nil

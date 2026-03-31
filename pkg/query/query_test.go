@@ -1,9 +1,10 @@
 package query
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 func buildTestGraph() *graph.Graph {
@@ -180,4 +181,186 @@ func TestCallStackNotFound(t *testing.T) {
 	if err == nil {
 		t.Error("expected error")
 	}
+}
+
+func TestCallStackZeroCallers(t *testing.T) {
+	g := graph.NewGraph()
+	// An orphan function with no callers or callees.
+	orphan := graph.Node{
+		ID:       graph.MakeNodeID("m", graph.KindFunction, "Orphan"),
+		Kind:     graph.KindFunction,
+		Name:     "Orphan",
+		Module:   "m",
+		Metadata: map[string]string{},
+	}
+	g.AddNode(orphan)
+
+	engine := NewQueryEngine(g, 10)
+	result, err := engine.CallStack("Orphan", Reverse)
+	if err != nil {
+		t.Fatalf("CallStack failed: %v", err)
+	}
+	if !strings.Contains(result.Summary, "Found 0 callers") {
+		t.Errorf("expected summary to contain 'Found 0 callers', got: %s", result.Summary)
+	}
+	t.Logf("Summary: %s", result.Summary)
+}
+
+func TestFuzzyMatchSuggestions(t *testing.T) {
+	g := graph.NewGraph()
+	for _, name := range []string{"GenerateEdits", "GenerateAidEdits", "GenerateDiff"} {
+		g.AddNode(graph.Node{
+			ID:       graph.MakeNodeID("m", graph.KindFunction, name),
+			Kind:     graph.KindFunction,
+			Name:     name,
+			Module:   "m",
+			Metadata: map[string]string{},
+		})
+	}
+
+	engine := NewQueryEngine(g, 10)
+	_, err := engine.CallStack("GenerateEdit", Forward)
+	if err == nil {
+		t.Fatal("expected NotFoundError for misspelled name")
+	}
+	nfe, ok := err.(*NotFoundError)
+	if !ok {
+		t.Fatalf("expected *NotFoundError, got %T: %v", err, err)
+	}
+	if len(nfe.Suggestions) == 0 {
+		t.Fatal("expected suggestions, got none")
+	}
+	found := false
+	for _, s := range nfe.Suggestions {
+		if s == "GenerateEdits" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'GenerateEdits' in suggestions, got: %v", nfe.Suggestions)
+	}
+	t.Logf("Suggestions: %v", nfe.Suggestions)
+}
+
+func TestMethodNameExpansion(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode(graph.Node{
+		ID:       graph.MakeNodeID("m", graph.KindMethod, "DB.Compact"),
+		Kind:     graph.KindMethod,
+		Name:     "DB.Compact",
+		Module:   "m",
+		Metadata: map[string]string{},
+	})
+
+	engine := NewQueryEngine(g, 10)
+	_, err := engine.CallStack("Compact", Forward)
+	if err == nil {
+		t.Fatal("expected NotFoundError (bare name should not resolve directly)")
+	}
+	nfe, ok := err.(*NotFoundError)
+	if !ok {
+		t.Fatalf("expected *NotFoundError, got %T: %v", err, err)
+	}
+	found := false
+	for _, s := range nfe.Suggestions {
+		if s == "DB.Compact" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'DB.Compact' in suggestions, got: %v", nfe.Suggestions)
+	}
+	t.Logf("Suggestions: %v", nfe.Suggestions)
+}
+
+func TestSearch(t *testing.T) {
+	g := buildTestGraph()
+	engine := NewQueryEngine(g, 10)
+
+	result, err := engine.Search("*User*", "")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if result.Total == 0 {
+		t.Error("expected matches for '*User*'")
+	}
+	// Verify results are grouped by kind.
+	for kind, nodes := range result.Matches {
+		if len(nodes) == 0 {
+			t.Errorf("empty slice for kind %s", kind)
+		}
+		// Verify sorted by name.
+		for i := 1; i < len(nodes); i++ {
+			if nodes[i-1].Name > nodes[i].Name {
+				t.Errorf("kind %s not sorted: %s > %s", kind, nodes[i-1].Name, nodes[i].Name)
+			}
+		}
+	}
+	t.Logf("Search('*User*'): %d total matches across %d kinds", result.Total, len(result.Matches))
+}
+
+func TestSearchNoResults(t *testing.T) {
+	g := buildTestGraph()
+	engine := NewQueryEngine(g, 10)
+
+	result, err := engine.Search("ZzzNonexistent999", "")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if result.Total != 0 {
+		t.Errorf("expected 0 matches, got %d", result.Total)
+	}
+}
+
+func TestListModule(t *testing.T) {
+	g := buildTestGraph()
+	engine := NewQueryEngine(g, 10)
+
+	result, err := engine.ListModule("m")
+	if err != nil {
+		t.Fatalf("ListModule failed: %v", err)
+	}
+	if result.Total == 0 {
+		t.Error("expected nodes in module 'm'")
+	}
+	// Verify nodes are grouped by kind.
+	for kind, nodes := range result.Matches {
+		if len(nodes) == 0 {
+			t.Errorf("empty slice for kind %s", kind)
+		}
+	}
+	t.Logf("ListModule('m'): %d total nodes across %d kinds", result.Total, len(result.Matches))
+}
+
+func TestListModulePartialMatch(t *testing.T) {
+	g := graph.NewGraph()
+	// Create nodes in a module with a longer name.
+	g.AddNode(graph.Node{
+		ID:       graph.MakeNodeID("github.com/example/pkg", graph.KindModule, "github.com/example/pkg"),
+		Kind:     graph.KindModule,
+		Name:     "github.com/example/pkg",
+		Module:   "github.com/example/pkg",
+		Metadata: map[string]string{},
+	})
+	g.AddNode(graph.Node{
+		ID:       graph.MakeNodeID("github.com/example/pkg", graph.KindFunction, "DoWork"),
+		Kind:     graph.KindFunction,
+		Name:     "DoWork",
+		Module:   "github.com/example/pkg",
+		Metadata: map[string]string{},
+	})
+
+	engine := NewQueryEngine(g, 10)
+
+	// Partial match: "example/pkg" should match "github.com/example/pkg".
+	result, err := engine.ListModule("example/pkg")
+	if err != nil {
+		t.Fatalf("ListModule partial match failed: %v", err)
+	}
+	if result.Total == 0 {
+		t.Error("expected nodes via partial module match")
+	}
+	t.Logf("ListModule('example/pkg') partial: %d total nodes", result.Total)
 }

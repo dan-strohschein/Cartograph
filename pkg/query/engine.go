@@ -2,8 +2,9 @@ package query
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 // TraversalDirection controls which edges to follow.
@@ -41,12 +42,17 @@ type EffectReport struct {
 
 // NotFoundError is returned when a query target doesn't exist.
 type NotFoundError struct {
-	Entity string
-	Kind   string
+	Entity      string
+	Kind        string
+	Suggestions []string
 }
 
 func (e *NotFoundError) Error() string {
-	return fmt.Sprintf("%s not found: %s", e.Kind, e.Entity)
+	msg := fmt.Sprintf("%s not found: %s", e.Kind, e.Entity)
+	if len(e.Suggestions) > 0 {
+		msg += fmt.Sprintf(". Did you mean: %s?", strings.Join(e.Suggestions, ", "))
+	}
+	return msg
 }
 
 // AmbiguousError is returned when a name matches multiple entities.
@@ -225,7 +231,12 @@ func (qe *QueryEngine) resolveFunction(name string) (graph.Node, error) {
 		}
 	}
 	if len(matches) == 0 {
-		return graph.Node{}, &NotFoundError{Entity: name, Kind: "function"}
+		nfe := &NotFoundError{Entity: name, Kind: "function"}
+		suggestions := qe.suggestSimilar(name, []graph.NodeKind{graph.KindFunction, graph.KindMethod}, 5)
+		if len(suggestions) > 0 {
+			nfe.Suggestions = suggestions
+		}
+		return graph.Node{}, nfe
 	}
 	if len(matches) == 1 {
 		return matches[0], nil
@@ -257,7 +268,12 @@ func (qe *QueryEngine) resolveNode(name string, kinds ...graph.NodeKind) (graph.
 		if len(kinds) > 0 {
 			kindStr = string(kinds[0])
 		}
-		return graph.Node{}, &NotFoundError{Entity: name, Kind: kindStr}
+		nfe := &NotFoundError{Entity: name, Kind: kindStr}
+		suggestions := qe.suggestSimilar(name, kinds, 5)
+		if len(suggestions) > 0 {
+			nfe.Suggestions = suggestions
+		}
+		return graph.Node{}, nfe
 	}
 	return matches[0], nil
 }

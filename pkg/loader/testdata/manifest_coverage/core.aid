@@ -1,0 +1,10 @@
+@module fmtcov/core
+@lang go
+@version 0.1.0
+@purpose Core symbols referenced from leaf
+
+---
+
+@fn CoreHelper
+@purpose Helper invoked from leaf package
+@sig () -> None

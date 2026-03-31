@@ -26,6 +26,7 @@ const (
 	KindConstant NodeKind = "Constant"
 	KindModule   NodeKind = "Module"
 	KindWorkflow NodeKind = "Workflow"
+	KindLock     NodeKind = "Lock"
 )
 
 // EdgeKind classifies relationships between code entities.
@@ -46,6 +47,8 @@ const (
 	EdgeWritesField     EdgeKind = "WritesField"
 	EdgeDependsOn       EdgeKind = "DependsOn"
 	EdgeStepOf          EdgeKind = "StepOf"
+	EdgeAcquires        EdgeKind = "Acquires"
+	EdgeOrderedBefore   EdgeKind = "OrderedBefore"
 )
 
 // Node represents a single code entity: function, type, field, method, constant, or module.

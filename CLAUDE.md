@@ -30,3 +30,8 @@ go build -o cartograph ./cmd/cartograph
 ## Dependencies
 
 - `github.com/dan-strohschein/aidkit/pkg/parser` — AID file parser
+
+## Testing
+
+- Default: `go test ./...` — hermetic tests (including `internal/loader/testdata` AID fixtures).
+- Integration (aid-gen-go + external trees such as chisel): set `CARTOGRAPH_AID_GEN_GO` to the `aid-gen-go` main package directory, and optionally `CARTOGRAPH_CHISEL_RESOLVE` / `CARTOGRAPH_CHISEL_EDIT` to those package roots, then run `go test -tags=integration ./internal/loader -v`. Tests skip if variables are unset or paths are missing.

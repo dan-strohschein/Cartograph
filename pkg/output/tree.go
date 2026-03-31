@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
-	"github.com/dan-strohschein/cartograph/internal/query"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
+	"github.com/dan-strohschein/cartograph/pkg/query"
 )
 
 // RenderTree writes a query result as an indented tree.

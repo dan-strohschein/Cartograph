@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/dan-strohschein/aidkit/pkg/parser"
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 // LoadFromDirectory parses all .aid files in a directory and builds a Graph.

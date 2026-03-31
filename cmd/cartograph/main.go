@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dan-strohschein/cartograph/internal/loader"
-	"github.com/dan-strohschein/cartograph/internal/output"
-	"github.com/dan-strohschein/cartograph/internal/query"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
+	"github.com/dan-strohschein/cartograph/pkg/loader"
+	"github.com/dan-strohschein/cartograph/pkg/output"
+	"github.com/dan-strohschein/cartograph/pkg/query"
 )
 
 func main() {
@@ -24,11 +25,41 @@ func main() {
 	format := fs.String("format", "tree", "Output format: tree, json")
 	depth := fs.Int("depth", 10, "Max traversal depth (1-50)")
 
-	subcommand := os.Args[1]
+	// Find the subcommand by scanning past any leading global flags.
+	// This allows both "cartograph depends Foo --dir /p" and "cartograph --dir /p depends Foo".
+	subcommandIdx := 1
+	knownValueFlags := map[string]bool{"--dir": true, "--format": true, "--depth": true, "-dir": true, "-format": true, "-depth": true}
+	for subcommandIdx < len(os.Args) {
+		arg := os.Args[subcommandIdx]
+		if knownValueFlags[arg] {
+			subcommandIdx += 2 // skip flag + value
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			// Unknown flag before subcommand — skip it
+			subcommandIdx++
+			continue
+		}
+		break
+	}
+	if subcommandIdx >= len(os.Args) {
+		printUsage()
+		os.Exit(1)
+	}
+	subcommand := os.Args[subcommandIdx]
+
+	// Rebuild os.Args[2:] equivalent: everything except the program name and subcommand.
+	var restArgs []string
+	for i := 1; i < len(os.Args); i++ {
+		if i == subcommandIdx {
+			continue
+		}
+		restArgs = append(restArgs, os.Args[i])
+	}
 
 	// Handle stats subcommand separately (no positional arg).
 	if subcommand == "stats" {
-		fs.Parse(os.Args[2:])
+		fs.Parse(restArgs)
 		aidDir := resolveDir(*dir)
 		g, err := loader.LoadFromDirectory(aidDir)
 		if err != nil {
@@ -54,7 +85,7 @@ func main() {
 	// Separate flags from positional args manually, since Go's flag package
 	// stops at the first non-flag arg.
 	var flagArgs, positionalArgs []string
-	args := os.Args[2:]
+	args := restArgs
 	for i := 0; i < len(args); i++ {
 		if strings.HasPrefix(args[i], "--") || strings.HasPrefix(args[i], "-") {
 			name := strings.TrimLeft(args[i], "-")
@@ -130,7 +161,7 @@ func main() {
 			}
 		}
 		// Also check flags parsed before positional args.
-		for _, a := range os.Args[2:] {
+		for _, a := range restArgs {
 			switch a {
 			case "--up":
 				direction = query.Reverse
@@ -164,6 +195,34 @@ func main() {
 			os.Exit(1)
 		}
 		render(*format, nil, report)
+
+	case "search":
+		pattern := remaining[0]
+		var kindFilter graph.NodeKind
+		for i, arg := range remaining[1:] {
+			if arg == "--kind" && i+1 < len(remaining[1:]) {
+				v := remaining[i+2]
+				if len(v) > 0 {
+					v = strings.ToUpper(v[:1]) + v[1:]
+				}
+				kindFilter = graph.NodeKind(v)
+			}
+		}
+		result, err := engine.Search(pattern, kindFilter)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		renderSearch(result)
+
+	case "list":
+		moduleName := remaining[0]
+		result, err := engine.ListModule(moduleName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		renderSearch(result)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", subcommand)
@@ -212,6 +271,34 @@ func resolveDir(dir string) string {
 	return wd
 }
 
+func renderSearch(result *query.SearchResult) {
+	fmt.Printf("Search: %q — %d match(es)\n\n", result.Pattern, result.Total)
+	kindOrder := []graph.NodeKind{
+		graph.KindModule, graph.KindType, graph.KindTrait,
+		graph.KindFunction, graph.KindMethod, graph.KindField,
+		graph.KindConstant, graph.KindWorkflow, graph.KindLock,
+	}
+	for _, kind := range kindOrder {
+		nodes, ok := result.Matches[kind]
+		if !ok || len(nodes) == 0 {
+			continue
+		}
+		fmt.Printf("  %s (%d):\n", kind, len(nodes))
+		for _, n := range nodes {
+			loc := ""
+			if n.SourceFile != "" {
+				loc = fmt.Sprintf(" (%s:%d)", n.SourceFile, n.SourceLine)
+			}
+			purpose := ""
+			if n.Purpose != "" {
+				purpose = " — " + n.Purpose
+			}
+			fmt.Printf("    %s%s%s\n", n.Name, purpose, loc)
+		}
+		fmt.Println()
+	}
+}
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `Cartograph — semantic code index from AID files
 
@@ -221,7 +308,11 @@ Usage:
   cartograph callstack <function> [--up|--down]    What's the call stack?
   cartograph depends <Type>                        What depends on this type?
   cartograph effects <function>                    What are the side effects?
+  cartograph search <pattern> [--kind <kind>]      Find nodes by name (glob/regex)
+  cartograph list <module>                         List all nodes in a module
   cartograph stats                                 Show graph statistics
+
+  Methods use Type.Method format: cartograph callstack DB.Compact --down
 
 Flags:
   --dir <path>     Path to .aid files directory (default: auto-discover .aidocs/)

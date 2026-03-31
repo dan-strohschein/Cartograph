@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dan-strohschein/cartograph/internal/graph"
+	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
 
 func TestLoadRealAIDFiles(t *testing.T) {

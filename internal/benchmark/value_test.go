@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dan-strohschein/cartograph/internal/loader"
-	"github.com/dan-strohschein/cartograph/internal/output"
-	"github.com/dan-strohschein/cartograph/internal/query"
+	"github.com/dan-strohschein/cartograph/pkg/loader"
+	"github.com/dan-strohschein/cartograph/pkg/output"
+	"github.com/dan-strohschein/cartograph/pkg/query"
 )
 
 const (

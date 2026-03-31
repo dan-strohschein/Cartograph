@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/dan-strohschein/cartograph/internal/query"
+	"github.com/dan-strohschein/cartograph/pkg/query"
 )
 
 type jsonNode struct {

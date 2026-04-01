@@ -1,6 +1,7 @@
 package loader
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -108,12 +109,23 @@ func entryToNode(module string, entry parser.Entry) graph.Node {
 		n.Type = f.Value()
 	}
 
-	// Extract source references.
-	for _, f := range entry.Fields {
-		for _, ref := range f.SourceRefs {
-			if n.SourceFile == "" {
-				n.SourceFile = ref.File
-				n.SourceLine = ref.StartLine
+	// Extract source location — prefer explicit @source_file/@source_line fields,
+	// fall back to inline [src:] references.
+	if f, ok := entry.Fields["source_file"]; ok {
+		n.SourceFile = f.Value()
+	}
+	if f, ok := entry.Fields["source_line"]; ok {
+		if line := f.Value(); line != "" {
+			fmt.Sscanf(line, "%d", &n.SourceLine)
+		}
+	}
+	if n.SourceFile == "" {
+		for _, f := range entry.Fields {
+			for _, ref := range f.SourceRefs {
+				if n.SourceFile == "" {
+					n.SourceFile = ref.File
+					n.SourceLine = ref.StartLine
+				}
 			}
 		}
 	}

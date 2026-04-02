@@ -46,3 +46,46 @@ func TestLoadRealAIDFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadProofgoAIDFiles(t *testing.T) {
+	dir := "/Users/danstrohschein/Documents/CodeProjects/proofgo/backend/.aidocs"
+	if _, err := os.Stat(dir); err != nil {
+		t.Skip("proofgo test data not available")
+	}
+
+	g, err := LoadFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("LoadFromDirectory failed: %v", err)
+	}
+
+	stats := g.Stats()
+	t.Logf("Proofgo: %d nodes, %d edges, %d modules", stats.NodeCount, stats.EdgeCount, stats.Modules)
+	for k, v := range stats.NodesByKind {
+		t.Logf("  %s: %d", k, v)
+	}
+	for k, v := range stats.EdgesByKind {
+		t.Logf("  %s: %d", k, v)
+	}
+
+	// Verify reasonable counts.
+	if stats.NodeCount == 0 {
+		t.Error("expected nodes")
+	}
+	if stats.Modules == 0 {
+		t.Error("expected modules")
+	}
+
+	// Test discovery-based loading produces the same graph.
+	g2, result, err := LoadWithDiscovery(dir)
+	if err != nil {
+		t.Fatalf("LoadWithDiscovery failed: %v", err)
+	}
+	if g2 == nil {
+		t.Fatal("LoadWithDiscovery returned nil graph")
+	}
+	stats2 := g2.Stats()
+	if stats2.NodeCount != stats.NodeCount {
+		t.Errorf("discovery loaded %d nodes, direct loaded %d", stats2.NodeCount, stats.NodeCount)
+	}
+	t.Logf("Discovery path: %s, files: %d", result.AidDocsPath, len(result.AidFiles))
+}

@@ -16,10 +16,7 @@ func (qe *QueryEngine) TypeDependents(typeName string) (*QueryResult, error) {
 	var allPaths []TraversalPath
 
 	// Find all edges where the target is this type.
-	for _, e := range qe.g.AllEdges() {
-		if e.Target != typeNode.ID {
-			continue
-		}
+	for _, e := range qe.g.InEdges(typeNode.ID) {
 		src, err := qe.g.NodeByID(e.Source)
 		if err != nil {
 			continue

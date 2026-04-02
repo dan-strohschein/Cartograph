@@ -122,6 +122,37 @@ func TestStats(t *testing.T) {
 	}
 }
 
+func TestEdgesByKind(t *testing.T) {
+	g := NewGraph()
+	n1 := Node{ID: MakeNodeID("m", KindFunction, "A"), Kind: KindFunction, Name: "A", Module: "m", Metadata: map[string]string{}}
+	n2 := Node{ID: MakeNodeID("m", KindFunction, "B"), Kind: KindFunction, Name: "B", Module: "m", Metadata: map[string]string{}}
+	n3 := Node{ID: MakeNodeID("m", KindType, "T"), Kind: KindType, Name: "T", Module: "m", Metadata: map[string]string{}}
+	g.AddNode(n1)
+	g.AddNode(n2)
+	g.AddNode(n3)
+
+	g.AddEdge(Edge{Source: n1.ID, Target: n2.ID, Kind: EdgeCalls, Label: "A->B"})
+	g.AddEdge(Edge{Source: n1.ID, Target: n3.ID, Kind: EdgeReturns, Label: "A->T"})
+	g.AddEdge(Edge{Source: n2.ID, Target: n3.ID, Kind: EdgeAccepts, Label: "B->T"})
+
+	calls := g.EdgesByKind(EdgeCalls)
+	if len(calls) != 1 {
+		t.Errorf("expected 1 Calls edge, got %d", len(calls))
+	}
+	returns := g.EdgesByKind(EdgeReturns)
+	if len(returns) != 1 {
+		t.Errorf("expected 1 Returns edge, got %d", len(returns))
+	}
+	accepts := g.EdgesByKind(EdgeAccepts)
+	if len(accepts) != 1 {
+		t.Errorf("expected 1 Accepts edge, got %d", len(accepts))
+	}
+	empty := g.EdgesByKind(EdgeProducesError)
+	if len(empty) != 0 {
+		t.Errorf("expected 0 ProducesError edges, got %d", len(empty))
+	}
+}
+
 func TestMakeNodeID(t *testing.T) {
 	id1 := MakeNodeID("mod", KindFunction, "Foo")
 	id2 := MakeNodeID("mod", KindFunction, "Foo")

@@ -19,8 +19,8 @@ func (qe *QueryEngine) FieldTouchers(typeName, fieldName string) (*QueryResult, 
 	var allPaths []TraversalPath
 
 	// Check for ReadsField and WritesField edges pointing to this field.
-	for _, e := range qe.g.AllEdges() {
-		if (e.Kind == graph.EdgeReadsField || e.Kind == graph.EdgeWritesField) && e.Target == fieldNode.ID {
+	for _, e := range qe.g.InEdges(fieldNode.ID) {
+		if e.Kind == graph.EdgeReadsField || e.Kind == graph.EdgeWritesField {
 			src, err := qe.g.NodeByID(e.Source)
 			if err == nil {
 				allPaths = append(allPaths, TraversalPath{

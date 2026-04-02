@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/dan-strohschein/cartograph/pkg/graph"
@@ -24,6 +23,7 @@ func main() {
 	dir := fs.String("dir", "", "Path to directory containing .aid files (default: auto-discover .aidocs/)")
 	format := fs.String("format", "tree", "Output format: tree, json")
 	depth := fs.Int("depth", 10, "Max traversal depth (1-50)")
+	noCache := fs.Bool("no-cache", false, "Disable graph cache (always re-parse AID files)")
 
 	// Find the subcommand by scanning past any leading global flags.
 	// This allows both "cartograph depends Foo --dir /p" and "cartograph --dir /p depends Foo".
@@ -60,8 +60,7 @@ func main() {
 	// Handle stats subcommand separately (no positional arg).
 	if subcommand == "stats" {
 		fs.Parse(restArgs)
-		aidDir := resolveDir(*dir)
-		g, err := loader.LoadFromDirectory(aidDir)
+		g, err := loadGraph(*dir, *noCache)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -96,6 +95,8 @@ func main() {
 					i++
 					flagArgs = append(flagArgs, args[i])
 				}
+			} else if name == "no-cache" {
+				flagArgs = append(flagArgs, args[i])
 			} else {
 				// Direction flags (--up, --down, --both) and unknown flags go to positional.
 				positionalArgs = append(positionalArgs, args[i])
@@ -113,9 +114,7 @@ func main() {
 	}
 	remaining := positionalArgs
 
-	aidDir := resolveDir(*dir)
-
-	g, err := loader.LoadFromDirectory(aidDir)
+	g, err := loadGraph(*dir, *noCache)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading AID files: %v\n", err)
 		os.Exit(1)
@@ -248,27 +247,28 @@ func render(format string, result *query.QueryResult, effects *query.EffectRepor
 	}
 }
 
-func resolveDir(dir string) string {
+// loadGraph loads AID files into a graph. When dir is specified, it loads from
+// that directory directly. Otherwise, it uses aidkit's discovery protocol.
+// When noCache is false, uses the gob cache for faster subsequent loads.
+func loadGraph(dir string, noCache bool) (*graph.Graph, error) {
 	if dir != "" {
-		return dir
+		if noCache {
+			return loader.LoadFromDirectory(dir)
+		}
+		return loader.LoadFromDirectoryCached(dir)
 	}
-	// Walk up looking for .aidocs/.
 	wd, err := os.Getwd()
 	if err != nil {
-		return ".aidocs"
+		return nil, fmt.Errorf("cannot get working directory: %w", err)
 	}
-	for d := wd; ; d = filepath.Dir(d) {
-		candidate := filepath.Join(d, ".aidocs")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return candidate
-		}
-		parent := filepath.Dir(d)
-		if parent == d {
-			break
-		}
+	g, _, err := loader.LoadWithDiscovery(wd)
+	if err != nil {
+		return nil, err
 	}
-	// If no .aidocs/ found, try current directory (flat .aid files).
-	return wd
+	if g == nil {
+		return nil, fmt.Errorf("no .aidocs/ directory found (searched up from %s)", wd)
+	}
+	return g, nil
 }
 
 func renderSearch(result *query.SearchResult) {
@@ -318,5 +318,6 @@ Flags:
   --dir <path>     Path to .aid files directory (default: auto-discover .aidocs/)
   --format <fmt>   Output format: tree (default), json
   --depth <n>      Max traversal depth, 1-50 (default: 10)
+  --no-cache       Disable graph cache (always re-parse AID files)
 `)
 }

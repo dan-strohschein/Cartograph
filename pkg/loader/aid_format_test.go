@@ -15,13 +15,7 @@ func formatCoverageDir(t *testing.T) string {
 }
 
 func countEdgesByKind(g *graph.Graph, k graph.EdgeKind) int {
-	n := 0
-	for _, e := range g.AllEdges() {
-		if e.Kind == k {
-			n++
-		}
-	}
-	return n
+	return len(g.EdgesByKind(k))
 }
 
 func TestFormatCoverageLoadFromDirectory(t *testing.T) {

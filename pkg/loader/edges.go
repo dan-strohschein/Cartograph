@@ -349,6 +349,9 @@ func extractEdges(af *parser.AidFile, nodeIndex map[string]graph.NodeID) []graph
 // sigParamRe matches type references in signatures.
 var sigParamRe = regexp.MustCompile(`\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)?)\??`)
 
+// stepFuncRe matches capitalized function references in workflow @steps.
+var stepFuncRe = regexp.MustCompile(`\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*)\b`)
+
 // extractSigEdges parses a @sig value and creates Accepts/Returns edges.
 func extractSigEdges(srcID graph.NodeID, sig string, nodeIndex map[string]graph.NodeID) []graph.Edge {
 	var edges []graph.Edge
@@ -442,10 +445,8 @@ func extractErrorEdges(srcID graph.NodeID, f parser.Field, nodeIndex map[string]
 func extractStepFunctions(f parser.Field) []string {
 	var funcs []string
 	lines := append([]string{f.InlineValue}, f.Lines...)
-	// Look for capitalized words that might be function references.
-	funcRe := regexp.MustCompile(`\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*)\b`)
 	for _, line := range lines {
-		for _, match := range funcRe.FindAllStringSubmatch(line, -1) {
+		for _, match := range stepFuncRe.FindAllStringSubmatch(line, -1) {
 			name := match[1]
 			// Skip common non-function words.
 			if name == "AID" || name == "None" || name == "True" || name == "False" || name == "If" || name == "For" || name == "Each" {

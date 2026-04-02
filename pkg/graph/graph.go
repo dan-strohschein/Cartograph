@@ -4,25 +4,27 @@ import "fmt"
 
 // Graph is the central data structure holding all nodes, edges, and indexes.
 type Graph struct {
-	nodes    map[NodeID]Node
-	edges    []Edge
-	byKind   map[NodeKind][]NodeID
-	byName   map[string][]NodeID
-	byType   map[string][]NodeID
-	outEdges map[NodeID][]Edge
-	inEdges  map[NodeID][]Edge
+	nodes      map[NodeID]Node
+	edges      []Edge
+	byKind     map[NodeKind][]NodeID
+	byName     map[string][]NodeID
+	byType     map[string][]NodeID
+	outEdges   map[NodeID][]Edge
+	inEdges    map[NodeID][]Edge
+	byEdgeKind map[EdgeKind][]Edge
 }
 
 // NewGraph creates an empty graph with initialized indexes.
 func NewGraph() *Graph {
 	return &Graph{
-		nodes:    make(map[NodeID]Node),
-		edges:    nil,
-		byKind:   make(map[NodeKind][]NodeID),
-		byName:   make(map[string][]NodeID),
-		byType:   make(map[string][]NodeID),
-		outEdges: make(map[NodeID][]Edge),
-		inEdges:  make(map[NodeID][]Edge),
+		nodes:      make(map[NodeID]Node),
+		edges:      nil,
+		byKind:     make(map[NodeKind][]NodeID),
+		byName:     make(map[string][]NodeID),
+		byType:     make(map[string][]NodeID),
+		outEdges:   make(map[NodeID][]Edge),
+		inEdges:    make(map[NodeID][]Edge),
+		byEdgeKind: make(map[EdgeKind][]Edge),
 	}
 }
 
@@ -53,6 +55,7 @@ func (g *Graph) AddEdge(edge Edge) {
 	g.edges = append(g.edges, edge)
 	g.outEdges[edge.Source] = append(g.outEdges[edge.Source], edge)
 	g.inEdges[edge.Target] = append(g.inEdges[edge.Target], edge)
+	g.byEdgeKind[edge.Kind] = append(g.byEdgeKind[edge.Kind], edge)
 }
 
 // NodeByID looks up a node by its unique ID.
@@ -106,6 +109,11 @@ func (g *Graph) AllNodes() []Node {
 // AllEdges returns all edges in the graph.
 func (g *Graph) AllEdges() []Edge {
 	return g.edges
+}
+
+// EdgesByKind returns all edges of a specific kind.
+func (g *Graph) EdgesByKind(kind EdgeKind) []Edge {
+	return g.byEdgeKind[kind]
 }
 
 // Stats returns summary statistics about the graph.

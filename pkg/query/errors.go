@@ -12,8 +12,8 @@ import (
 func (qe *QueryEngine) ErrorProducers(errorType string) (*QueryResult, error) {
 	// Find all edges with ProducesError that match the error type.
 	var producers []graph.Node
-	for _, e := range qe.g.AllEdges() {
-		if e.Kind == graph.EdgeProducesError && matchesName(e.Label, errorType) {
+	for _, e := range qe.g.EdgesByKind(graph.EdgeProducesError) {
+		if matchesName(e.Label, errorType) {
 			n, err := qe.g.NodeByID(e.Source)
 			if err == nil {
 				producers = append(producers, n)

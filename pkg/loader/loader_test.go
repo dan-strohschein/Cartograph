@@ -123,6 +123,40 @@ func TestParseList(t *testing.T) {
 	}
 }
 
+func TestLoadWithDiscovery(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Skip("cannot get working directory")
+	}
+	g, result, err := LoadWithDiscovery(wd)
+	if err != nil {
+		t.Fatalf("LoadWithDiscovery failed: %v", err)
+	}
+	if g == nil {
+		t.Skip("no .aidocs/ found from test directory")
+	}
+	if result.AidDocsPath == "" {
+		t.Error("expected non-empty AidDocsPath")
+	}
+	stats := g.Stats()
+	if stats.NodeCount == 0 {
+		t.Error("expected nodes")
+	}
+	t.Logf("Discovery found %s: %d files, graph has %d nodes, %d edges",
+		result.AidDocsPath, len(result.AidFiles), stats.NodeCount, stats.EdgeCount)
+}
+
+func TestLoadWithDiscoveryNotFound(t *testing.T) {
+	dir := t.TempDir()
+	g, result, err := LoadWithDiscovery(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if g != nil || result != nil {
+		t.Error("expected nil graph and result when no .aidocs/ found")
+	}
+}
+
 func findAidocs(t *testing.T) string {
 	t.Helper()
 	// Walk up from test directory to find .aidocs/.

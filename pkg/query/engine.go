@@ -82,6 +82,9 @@ func NewQueryEngine(g *graph.Graph, maxDepth int) *QueryEngine {
 	return &QueryEngine{g: g, maxDepth: maxDepth}
 }
 
+// maxTraversalPaths caps the number of paths returned to prevent combinatorial explosion.
+const maxTraversalPaths = 1000
+
 // Traverse walks edges from a starting node, filtering by edge kind and direction.
 func (qe *QueryEngine) Traverse(startID graph.NodeID, edgeKinds []graph.EdgeKind, direction TraversalDirection, maxDepth int) []TraversalPath {
 	if maxDepth <= 0 {
@@ -128,6 +131,9 @@ func (qe *QueryEngine) Traverse(startID graph.NodeID, edgeKinds []graph.EdgeKind
 				Edges: current.edges,
 				Depth: len(current.edges),
 			})
+			if len(results) >= maxTraversalPaths {
+				return results
+			}
 			continue
 		}
 
@@ -156,6 +162,9 @@ func (qe *QueryEngine) Traverse(startID graph.NodeID, edgeKinds []graph.EdgeKind
 					Edges: current.edges,
 					Depth: len(current.edges),
 				})
+				if len(results) >= maxTraversalPaths {
+					return results
+				}
 			}
 			continue
 		}
@@ -179,17 +188,17 @@ func (qe *QueryEngine) Traverse(startID graph.NodeID, edgeKinds []graph.EdgeKind
 
 			expanded = true
 
-			newVisited := make(map[graph.NodeID]bool)
+			newVisited := make(map[graph.NodeID]bool, len(current.visited)+1)
 			for k, v := range current.visited {
 				newVisited[k] = v
 			}
 			newVisited[nextID] = true
 
-			newNodes := make([]graph.Node, len(current.nodes)+1)
+			newNodes := make([]graph.Node, len(current.nodes)+1, maxDepth+1)
 			copy(newNodes, current.nodes)
 			newNodes[len(current.nodes)] = nextNode
 
-			newEdges := make([]graph.Edge, len(current.edges)+1)
+			newEdges := make([]graph.Edge, len(current.edges)+1, maxDepth)
 			copy(newEdges, current.edges)
 			newEdges[len(current.edges)] = edge
 
@@ -206,6 +215,9 @@ func (qe *QueryEngine) Traverse(startID graph.NodeID, edgeKinds []graph.EdgeKind
 				Edges: current.edges,
 				Depth: len(current.edges),
 			})
+			if len(results) >= maxTraversalPaths {
+				return results
+			}
 		}
 	}
 

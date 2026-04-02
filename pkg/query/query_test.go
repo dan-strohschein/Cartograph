@@ -334,6 +334,51 @@ func TestListModule(t *testing.T) {
 	t.Logf("ListModule('m'): %d total nodes across %d kinds", result.Total, len(result.Matches))
 }
 
+func TestTraverseMaxPaths(t *testing.T) {
+	g := graph.NewGraph()
+	root := graph.Node{
+		ID:       graph.MakeNodeID("m", graph.KindFunction, "Root"),
+		Kind:     graph.KindFunction,
+		Name:     "Root",
+		Module:   "m",
+		Metadata: map[string]string{},
+	}
+	g.AddNode(root)
+
+	// Build a wide, shallow graph: 50 mid nodes, each with 50 leaves = 2500 paths.
+	for i := 0; i < 50; i++ {
+		midName := "Mid" + strings.Repeat("X", 0) + string(rune('A'+i%26)) + strings.Repeat("0", i/26)
+		mid := graph.Node{
+			ID:       graph.MakeNodeID("m", graph.KindFunction, midName),
+			Kind:     graph.KindFunction,
+			Name:     midName,
+			Module:   "m",
+			Metadata: map[string]string{},
+		}
+		g.AddNode(mid)
+		g.AddEdge(graph.Edge{Source: root.ID, Target: mid.ID, Kind: graph.EdgeCalls})
+		for j := 0; j < 50; j++ {
+			leafName := midName + "_Leaf" + string(rune('A'+j%26)) + strings.Repeat("0", j/26)
+			leaf := graph.Node{
+				ID:       graph.MakeNodeID("m", graph.KindFunction, leafName),
+				Kind:     graph.KindFunction,
+				Name:     leafName,
+				Module:   "m",
+				Metadata: map[string]string{},
+			}
+			g.AddNode(leaf)
+			g.AddEdge(graph.Edge{Source: mid.ID, Target: leaf.ID, Kind: graph.EdgeCalls})
+		}
+	}
+
+	engine := NewQueryEngine(g, 10)
+	paths := engine.Traverse(root.ID, nil, Forward, 10)
+	if len(paths) > maxTraversalPaths {
+		t.Errorf("expected paths capped at %d, got %d", maxTraversalPaths, len(paths))
+	}
+	t.Logf("Traverse returned %d paths (max %d)", len(paths), maxTraversalPaths)
+}
+
 func TestListModulePartialMatch(t *testing.T) {
 	g := graph.NewGraph()
 	// Create nodes in a module with a longer name.

@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
+	"github.com/dan-strohschein/aidkit/pkg/discovery"
 	"github.com/dan-strohschein/aidkit/pkg/parser"
 	"github.com/dan-strohschein/cartograph/pkg/graph"
 )
@@ -34,18 +37,43 @@ func LoadFromFiles(paths []string) (*graph.Graph, error) {
 	// nodeIndex maps qualified names to NodeIDs for edge resolution.
 	nodeIndex := make(map[string]graph.NodeID)
 
-	// First pass: parse all files and extract nodes.
+	// First pass: parse all files concurrently, then extract nodes sequentially.
+	type parseResult struct {
+		aidFile *parser.AidFile
+		path    string
+		err     error
+	}
+
+	results := make([]parseResult, len(paths))
+	numWorkers := runtime.GOMAXPROCS(0)
+	if numWorkers > len(paths) {
+		numWorkers = len(paths)
+	}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, numWorkers)
+	for i, path := range paths {
+		wg.Add(1)
+		go func(idx int, p string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			af, _, err := parser.ParseFile(p)
+			results[idx] = parseResult{aidFile: af, path: p, err: err}
+		}(i, path)
+	}
+	wg.Wait()
+
 	var aidFiles []*parser.AidFile
-	for _, path := range paths {
-		af, _, err := parser.ParseFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", path, err)
+	for _, r := range results {
+		if r.err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", r.path, r.err)
 		}
-		if af.IsManifest {
+		if r.aidFile.IsManifest {
 			continue
 		}
-		aidFiles = append(aidFiles, af)
-		nodes := extractNodes(af)
+		aidFiles = append(aidFiles, r.aidFile)
+		nodes := extractNodes(r.aidFile)
 		for _, n := range nodes {
 			g.AddNode(n)
 			nodeIndex[n.QualifiedName] = n.ID
@@ -60,6 +88,48 @@ func LoadFromFiles(paths []string) (*graph.Graph, error) {
 			g.AddEdge(e)
 		}
 	}
+
+	return g, nil
+}
+
+// LoadFromDirectoryCached is like LoadFromDirectory but uses a gob cache file
+// to skip parsing when AID files haven't changed. The cache is stored as
+// cartograph.cache alongside the AID files.
+func LoadFromDirectoryCached(dir string) (*graph.Graph, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory %s: %w", dir, err)
+	}
+	var paths []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".aid") {
+			paths = append(paths, filepath.Join(dir, e.Name()))
+		}
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no .aid files found in %s", dir)
+	}
+
+	fingerprint, err := graph.ComputeFingerprint(paths)
+	if err != nil {
+		return nil, fmt.Errorf("computing fingerprint: %w", err)
+	}
+
+	cachePath := filepath.Join(dir, graph.CacheFileName)
+
+	// Try loading from cache.
+	if g, err := graph.LoadCache(cachePath, fingerprint); err == nil {
+		return g, nil
+	}
+
+	// Cache miss or stale — rebuild.
+	g, err := LoadFromFiles(paths)
+	if err != nil {
+		return nil, err
+	}
+
+	// Best-effort cache write — don't fail if we can't write.
+	_ = graph.SaveCache(cachePath, g, fingerprint)
 
 	return g, nil
 }
@@ -123,6 +193,29 @@ func LoadWithManifest(manifestPath string, relevantPackages []string) (*graph.Gr
 	}
 
 	return LoadFromFiles(paths)
+}
+
+// LoadWithDiscovery uses aidkit's discovery protocol to find .aidocs/ from any
+// starting directory, then loads all AID files into a Graph. Returns nil graph
+// and nil error if no .aidocs/ is found.
+func LoadWithDiscovery(startDir string) (*graph.Graph, *discovery.Result, error) {
+	result, err := discovery.Discover(startDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("discovery from %s: %w", startDir, err)
+	}
+	if result == nil {
+		return nil, nil, nil
+	}
+
+	if len(result.AidFiles) == 0 {
+		return nil, result, fmt.Errorf("no .aid files found in %s", result.AidDocsPath)
+	}
+
+	g, err := LoadFromDirectoryCached(result.AidDocsPath)
+	if err != nil {
+		return nil, result, err
+	}
+	return g, result, nil
 }
 
 // parseList parses a bracketed or comma-separated list like "[a, b, c]".

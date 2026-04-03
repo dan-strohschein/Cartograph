@@ -36,6 +36,10 @@ cartograph effects SaveDocument --dir /path/to/.aidocs/
 
 Auto-discovers `.aidocs/` by walking up from the current directory if `--dir` is not specified.
 
+## Graph Cache
+
+On first run, cartograph creates a `cartograph.cache` file alongside the AID files. Subsequent runs load the cached graph instead of re-parsing. The cache auto-invalidates when any AID file changes (tracked via file size + mtime fingerprint). Use `--no-cache` to bypass.
+
 ## Commands
 
 | Command | Question it answers |
@@ -45,23 +49,26 @@ Auto-discovers `.aidocs/` by walking up from the current directory if `--dir` is
 | `cartograph errors <ErrorType>` | What produces this error? |
 | `cartograph callstack <fn> [--up\|--down]` | What's the call stack? |
 | `cartograph effects <fn>` | What are the side effects? |
+| `cartograph search <pattern> [--kind <kind>]` | Find nodes by name (glob/regex) |
+| `cartograph list <module>` | List all nodes in a module |
 | `cartograph stats` | Graph statistics |
 
-**Flags:** `--dir <path>`, `--format tree|json`, `--depth 1-50`
+**Flags:** `--dir <path>`, `--format tree|json`, `--depth 1-50`, `--no-cache`
 
 ## Architecture
 
 ```
 cmd/cartograph/       CLI entry point
-internal/
-  graph/              Core data structure — nodes, edges, indexes
-  loader/             AID parser → graph construction
-  query/              5 query types + generic BFS traversal
+pkg/
+  graph/              Core data structure — nodes, edges, indexes, gob cache
+  loader/             AID parser → graph construction (parallel, cached)
+  query/              Query engine — BFS traversal + 5 typed queries + search
   output/             Tree and JSON renderers
-  benchmark/          Value benchmarks
+internal/
+  benchmark/          Token-reduction value benchmarks
 ```
 
-Depends on [`aidkit/pkg/parser`](https://github.com/dan-strohschein/aidkit) for AID file parsing.
+Depends on [`aidkit/pkg/parser`](https://github.com/dan-strohschein/aidkit) for AID file parsing and [`aidkit/pkg/discovery`](https://github.com/dan-strohschein/aidkit) for `.aidocs/` auto-discovery.
 
 ---
 
@@ -154,6 +161,29 @@ Agent with AID+Cartograph :    16,106 tokens (450.6x less than source)
 
 AID makes the data readable. Cartograph makes it queryable.
 
+### Performance Benchmarks
+
+Tested on two real codebases (Apple M3 Pro):
+
+| Metric | Proofgo (73 AID files) | SyndrDB (70 AID files) |
+|--------|----------------------|----------------------|
+| Nodes / Edges | 1,781 / 2,397 | 10,971 / 20,641 |
+| Parse load | 13.4ms | 144ms |
+| **Cached load** | **2.3ms** | **15.5ms** |
+| Memory footprint | 2.0 MB | 14.8 MB |
+
+**Head-to-head vs vanilla source reading (SyndrDB, 727 .go files, 9.1 MB):**
+
+| Task | Vanilla (grep src) | Cartograph | Speedup |
+|------|-------------------|------------|---------|
+| Type dependents | 118ms | 412μs | 288x |
+| Error producers | 124ms | 16μs | 7,840x |
+| Callers of function | 118ms | 15μs | 7,953x |
+| Field touchers | 119ms | 9μs | 12,760x |
+| **Total (6 queries)** | **721ms** | **12.2ms** | **59x** |
+
+Cartograph cached start (cache load + 6 queries): **27.9ms** vs vanilla 721ms.
+
 ### Limitations
 
 - **L1 AID only:** SyndrDB's AID files are L1 mechanical extraction — no `@calls` or typed `@errors` data. CallStack and ErrorProducers queries would improve significantly with L2+ AID.
@@ -163,9 +193,12 @@ AID makes the data readable. Cartograph makes it queryable.
 ### Reproducibility
 
 ```bash
-go test ./internal/benchmark/ -v -run TestCartographValue    # BM1
-go test ./internal/benchmark/ -v -run TestCartographVsAID    # BM2
-go test ./internal/benchmark/ -v -run TestFullStack          # BM3
+go test ./internal/benchmark/ -v -run TestCartographValue    # BM1: Token reduction vs source
+go test ./internal/benchmark/ -v -run TestCartographVsAID    # BM2: Token reduction vs AID
+go test ./internal/benchmark/ -v -run TestFullStack          # BM3: Full compression chain
+go test ./pkg/loader/ -v -run TestHeadToHead                 # Speed: Vanilla vs Cartograph
+go test ./pkg/loader/ -bench=. -benchmem                     # Load benchmarks
+go test ./pkg/query/ -bench=. -benchmem                      # Query benchmarks
 ```
 
 Full benchmark details: [BM1.md](BM1.md) | [BM2.md](BM2.md) | [BM3.md](BM3.md)

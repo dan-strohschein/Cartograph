@@ -27,6 +27,15 @@ const (
 	KindModule   NodeKind = "Module"
 	KindWorkflow NodeKind = "Workflow"
 	KindLock     NodeKind = "Lock"
+
+	// Tier 4: agentic and dataflow constructs.
+	KindGraph     NodeKind = "Graph"     // @graph — a dataflow topology
+	KindGraphNode NodeKind = "GraphNode" // a single node within a @graph's @nodes
+	KindTool      NodeKind = "Tool"      // @tool — a model-invocable function
+	KindAgent     NodeKind = "Agent"     // @agent — an autonomous actor
+	KindPrompt    NodeKind = "Prompt"    // @prompt — a templated model invocation
+	KindModel     NodeKind = "Model"     // @model — a configured language model
+	KindFrame     NodeKind = "Frame"     // a frame type in a push-based (Pipecat) graph
 )
 
 // EdgeKind classifies relationships between code entities.
@@ -49,6 +58,20 @@ const (
 	EdgeStepOf          EdgeKind = "StepOf"
 	EdgeAcquires        EdgeKind = "Acquires"
 	EdgeOrderedBefore   EdgeKind = "OrderedBefore"
+
+	// Tier 4: agentic and dataflow relationships.
+	EdgeContainsNode    EdgeKind = "ContainsNode"    // Graph → GraphNode it owns
+	EdgeEntryNode       EdgeKind = "EntryNode"       // Graph → its entry GraphNode(s)
+	EdgeFlowsTo         EdgeKind = "FlowsTo"         // GraphNode → GraphNode (unconditional @edges)
+	EdgeConditionalFlow EdgeKind = "ConditionalFlow" // GraphNode → GraphNode (routed @conditional_edges)
+	EdgeImplementedBy   EdgeKind = "ImplementedBy"   // GraphNode → fn/tool/agent that implements it
+	EdgeRoutedBy        EdgeKind = "RoutedBy"        // GraphNode → router fn for conditional routing
+	EdgeUsesState       EdgeKind = "UsesState"       // Graph → its @state type
+	EdgeUsesTool        EdgeKind = "UsesTool"        // Agent → Tool it may call
+	EdgeUsesModel       EdgeKind = "UsesModel"       // Agent/Prompt → Model it targets
+	EdgeHandsOffTo      EdgeKind = "HandsOffTo"      // Agent → Agent it can transfer control to
+	EdgeProducesOutput  EdgeKind = "ProducesOutput"  // Agent/Prompt/Model → output/structured type
+	EdgeCarriesFrame    EdgeKind = "CarriesFrame"    // GraphNode → Frame flowing along an edge
 )
 
 // Node represents a single code entity: function, type, field, method, constant, or module.

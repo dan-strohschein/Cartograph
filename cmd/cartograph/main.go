@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/dan-strohschein/cartograph/pkg/graph"
@@ -78,6 +80,18 @@ func main() {
 		for k, v := range stats.EdgesByKind {
 			fmt.Printf("    %s: %d\n", k, v)
 		}
+		return
+	}
+
+	// Handle tools subcommand separately (no positional arg).
+	if subcommand == "tools" {
+		fs.Parse(restArgs)
+		g, err := loadGraph(*dir, *noCache)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		renderTools(*format, query.NewQueryEngine(g, *depth).ListTools())
 		return
 	}
 
@@ -223,6 +237,22 @@ func main() {
 		}
 		renderSearch(result)
 
+	case "graph":
+		view, err := engine.GraphTopology(remaining[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		renderGraph(*format, view)
+
+	case "agent":
+		view, err := engine.AgentInfo(remaining[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		renderAgent(*format, view)
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", subcommand)
 		printUsage()
@@ -277,6 +307,8 @@ func renderSearch(result *query.SearchResult) {
 		graph.KindModule, graph.KindType, graph.KindTrait,
 		graph.KindFunction, graph.KindMethod, graph.KindField,
 		graph.KindConstant, graph.KindWorkflow, graph.KindLock,
+		graph.KindGraph, graph.KindGraphNode, graph.KindTool,
+		graph.KindAgent, graph.KindPrompt, graph.KindModel, graph.KindFrame,
 	}
 	for _, kind := range kindOrder {
 		nodes, ok := result.Matches[kind]
@@ -299,6 +331,127 @@ func renderSearch(result *query.SearchResult) {
 	}
 }
 
+func renderGraph(format string, v *query.GraphView) {
+	if format == "json" {
+		emitJSON(v)
+		return
+	}
+	fmt.Printf("Graph: %s\n", v.Name)
+	if v.Purpose != "" {
+		fmt.Printf("  %s\n", v.Purpose)
+	}
+	if v.Engine != "" {
+		fmt.Printf("  Engine: %s\n", v.Engine)
+	}
+	if v.State != "" {
+		fmt.Printf("  State: %s\n", v.State)
+		fields := make([]string, 0, len(v.Reducers))
+		for field := range v.Reducers {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		for _, field := range fields {
+			fmt.Printf("    %s — reducer: %s\n", field, v.Reducers[field])
+		}
+	}
+	if len(v.EntryNodes) > 0 {
+		fmt.Printf("  Entry: %s\n", strings.Join(v.EntryNodes, ", "))
+	}
+	fmt.Printf("  Nodes:\n")
+	for _, n := range v.Nodes {
+		line := "    " + n.Name
+		if n.Implements != "" {
+			line += " → " + n.Implements
+		}
+		if n.Effects != "" {
+			line += " [" + n.Effects + "]"
+		}
+		fmt.Println(line)
+	}
+	if len(v.Edges) > 0 {
+		fmt.Printf("  Edges:\n")
+		for _, e := range v.Edges {
+			line := fmt.Sprintf("    %s -> %s", e.From, e.To)
+			if e.Frame != "" {
+				line += " : " + e.Frame
+			}
+			fmt.Println(line)
+		}
+	}
+	if len(v.Conditional) > 0 {
+		fmt.Printf("  Conditional edges:\n")
+		for _, c := range v.Conditional {
+			fmt.Printf("    %s: %s -> %s\n", c.From, c.Router, strings.Join(c.Targets, " | "))
+		}
+	}
+}
+
+func renderAgent(format string, v *query.AgentView) {
+	if format == "json" {
+		emitJSON(v)
+		return
+	}
+	fmt.Printf("Agent: %s\n", v.Name)
+	if v.Purpose != "" {
+		fmt.Printf("  %s\n", v.Purpose)
+	}
+	printField := func(label, val string) {
+		if val != "" {
+			fmt.Printf("  %s: %s\n", label, val)
+		}
+	}
+	printField("Model", v.Model)
+	if len(v.Tools) > 0 {
+		printField("Tools", strings.Join(v.Tools, ", "))
+	}
+	if len(v.Handoffs) > 0 {
+		printField("Handoffs", strings.Join(v.Handoffs, ", "))
+	}
+	printField("Output", v.Output)
+	printField("Autonomy", v.Autonomy)
+	printField("Memory", v.Memory)
+	printField("Effects", v.Effects)
+}
+
+func renderTools(format string, tools []query.ToolView) {
+	if format == "json" {
+		emitJSON(tools)
+		return
+	}
+	fmt.Printf("Tools — %d\n\n", len(tools))
+	for _, t := range tools {
+		fmt.Printf("  %s", t.Name)
+		if t.Signature != "" {
+			fmt.Printf("  %s", t.Signature)
+		}
+		fmt.Println()
+		if t.Purpose != "" {
+			fmt.Printf("    %s\n", t.Purpose)
+		}
+		var attrs []string
+		if t.InvokedBy != "" {
+			attrs = append(attrs, "invoked_by="+t.InvokedBy)
+		}
+		if t.Determinism != "" {
+			attrs = append(attrs, t.Determinism)
+		}
+		if t.Effects != "" {
+			// Effects are stored verbatim and already include surrounding brackets.
+			attrs = append(attrs, t.Effects)
+		}
+		if len(attrs) > 0 {
+			fmt.Printf("    %s\n", strings.Join(attrs, "  "))
+		}
+		fmt.Println()
+	}
+}
+
+func emitJSON(v any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(v)
+}
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `Cartograph — semantic code index from AID files
 
@@ -311,6 +464,11 @@ Usage:
   cartograph search <pattern> [--kind <kind>]      Find nodes by name (glob/regex)
   cartograph list <module>                         List all nodes in a module
   cartograph stats                                 Show graph statistics
+
+  Tier 4 (agentic / dataflow):
+  cartograph graph <name>                          Show a dataflow graph's topology
+  cartograph agent <name>                          Show an agent's model, tools, handoffs
+  cartograph tools                                 List all model-invocable tools
 
   Methods use Type.Method format: cartograph callstack DB.Compact --down
 

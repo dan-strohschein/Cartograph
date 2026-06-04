@@ -16,10 +16,14 @@ This project uses AID skeleton files in `.aidocs/` as the design spec.
 
 4 packages:
 
-- **graph** — Core data structure. Nodes (code entities) + Edges (relationships) + indexes for fast query.
-- **query** — Query engine. 5 core queries: ErrorProducers, FieldTouchers, CallStack, TypeDependents, SideEffects.
-- **loader** — Reads AID files, extracts nodes and edges, builds the graph.
-- **cli** — CLI interface. `cartograph errors|field|callstack|depends|effects`.
+- **graph** — Core data structure. Nodes (code entities) + Edges (relationships) + indexes for fast query. Includes Tier 4 kinds (Graph, GraphNode, Tool, Agent, Prompt, Model, Frame) and agentic edges (FlowsTo, ConditionalFlow, UsesTool, UsesModel, HandsOffTo, etc.).
+- **query** — Query engine. Core queries: ErrorProducers, FieldTouchers, CallStack, TypeDependents, SideEffects. Tier 4 queries: GraphTopology, AgentInfo, ListTools.
+- **loader** — Reads AID files, extracts nodes and edges, builds the graph. Tier 4 extraction (graph topology, state channels/reducers, tools/agents/prompts/models) lives in `tier4.go`.
+- **cli** — CLI interface. `cartograph errors|field|callstack|depends|effects|search|list|stats` plus Tier 4 `graph|agent|tools`.
+
+## AID Tiers
+
+Cartograph models all four AID spec tiers (see `AID/spec/format.md`): Tier 1/2 entries (`@fn`/`@type`/`@trait`/`@const`), Tier 2.5 annotations (`@lock` etc.), Tier 3 workflows (`@workflow`, incl. `@errors_at`/`@variants`), and Tier 4 agentic/dataflow constructs (`@graph`/`@tool`/`@agent`/`@prompt`/`@model`, state channels, `@engine`/`@checkpointer`). Tier 4 parsing depends on aidkit recognizing those entry keywords — it requires aidkit `v0.3.0` or later.
 
 ## Build
 

@@ -1,0 +1,140 @@
+@module agents/loop
+@lang python
+@version 0.1.0
+@aid_version 0.3
+@engine langgraph
+@checkpointer postgres — LangGraph PostgresSaver; threads keyed by thread_id
+@purpose A ReAct agent loop built on LangGraph
+
+---
+
+@type AgentState
+@kind struct
+@channels
+@purpose Shared state threaded through every node of agent_loop
+@fields
+  messages: [Message] — conversation history. reducer: append.
+  step_count: int — loop counter. reducer: increment. Default 0.
+  next: str — routing decision written by the planner. reducer: last-wins.
+
+---
+
+@type AgentDecision
+@kind struct
+@purpose Structured planner output
+@fields
+  action: str — the chosen action
+  done: bool — whether the loop should stop
+
+---
+
+@type SearchResult
+@kind struct
+@purpose A single web search hit
+@fields
+  title: str — result title
+  url: str — result URL
+
+---
+
+@type ResearchReport
+@kind struct
+@purpose Final summarized output
+@fields
+  summary: str — the report body
+
+---
+
+@graph agent_loop
+@purpose Reason-act-observe loop until the model stops calling tools
+@engine langgraph
+@state AgentState
+@entry plan
+@nodes
+  plan: planner_node — LLM selects the next action [Llm]
+  act: tool_executor — runs the selected tool [Tool]
+  observe: format_observation — folds the tool result into state
+@edges
+  act -> observe
+  observe -> plan
+@conditional_edges
+  plan: should_continue -> act | END — act if the last message has a tool call, else END
+@cycles
+  plan -> act -> observe -> plan — bounded by recursion_limit=25; raises GraphRecursionError if exceeded
+
+---
+
+@fn planner_node
+@purpose LLM selects the next action
+@sig (state: AgentState) -> AgentDecision
+@effects [Llm, Net]
+@determinism nondeterministic
+
+---
+
+@fn tool_executor
+@purpose Runs the selected tool
+@sig (state: AgentState) -> AgentState
+@effects [Tool]
+
+---
+
+@fn format_observation
+@purpose Folds the tool result into state
+@sig (state: AgentState) -> AgentState
+
+---
+
+@fn should_continue
+@purpose Router: continue acting or stop
+@sig (state: AgentState) -> str
+
+---
+
+@tool web_search
+@purpose Search the web and return ranked results. Use for current events or unknown facts.
+@sig (query: str, k?: int) -> [SearchResult] ! SearchError
+@invoked_by llm
+@effects [Net, Tool]
+@determinism nondeterministic
+@idempotent true
+
+---
+
+@tool fetch_url
+@purpose Fetch the contents of a URL
+@sig (url: str) -> str ! FetchError
+@invoked_by llm
+@effects [Net]
+
+---
+
+@model planner_llm
+@purpose LLM used for the planning step of agent_loop
+@provider anthropic
+@model_id claude-opus-4-8
+@params temperature=0.0, max_tokens=4096
+@structured_output AgentDecision
+@determinism nondeterministic
+@effects [Llm, Net]
+
+---
+
+@agent researcher
+@purpose Gathers and summarizes web sources on a topic
+@model planner_llm
+@system_prompt prompts/researcher.md
+@tools [web_search, fetch_url]
+@handoffs [writer]
+@autonomy supervised
+@memory thread
+@output ResearchReport
+@effects [Llm, Tool, Net]
+
+---
+
+@agent writer
+@purpose Turns research into a written report
+@model planner_llm
+@output ResearchReport
+@effects [Llm, Net]

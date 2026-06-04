@@ -37,6 +37,11 @@ func extractNodes(af *parser.AidFile) []graph.Node {
 				nodes = append(nodes, fieldNodes...)
 			}
 		}
+
+		// Tier 4: a @graph owns internal GraphNode and Frame nodes.
+		if entry.Kind == "graph" {
+			nodes = append(nodes, extractGraphInternalNodes(module, entry)...)
+		}
 	}
 
 	// Lock nodes from @lock annotations.
@@ -76,6 +81,12 @@ func extractNodes(af *parser.AidFile) []graph.Node {
 		}
 		if f, ok := wf.Fields["purpose"]; ok {
 			n.Purpose = f.Value()
+		}
+		// Tier 3: carry richer workflow fields as metadata.
+		for _, key := range []string{"errors_at", "variants", "antipatterns"} {
+			if f, ok := wf.Fields[key]; ok {
+				n.Metadata[key] = f.Value()
+			}
 		}
 		nodes = append(nodes, n)
 	}
@@ -141,7 +152,28 @@ func entryToNode(module string, entry parser.Entry) graph.Node {
 		n.Metadata["complexity"] = f.Value()
 	}
 
+	// Tier 4 scalar attributes — stored as metadata for query/display.
+	for _, key := range tier4MetadataFields {
+		if f, ok := entry.Fields[key]; ok {
+			n.Metadata[key] = f.Value()
+		}
+	}
+	// A @type marked with @channels uses reducer-merge semantics (Tier 4 state).
+	if entry.Kind == "type" {
+		if _, ok := entry.Fields["channels"]; ok {
+			n.Metadata["channels"] = "true"
+		}
+	}
+
 	return n
+}
+
+// tier4MetadataFields are scalar Tier 4 fields stored verbatim on a node's
+// metadata so queries and rendering can surface them.
+var tier4MetadataFields = []string{
+	"engine", "determinism", "autonomy", "memory", "invoked_by", "idempotent",
+	"provider", "model_id", "params", "cost", "schema", "system_prompt",
+	"template", "composition", "state", "structured_output", "output",
 }
 
 func entryKindToNodeKind(entry parser.Entry) graph.NodeKind {
@@ -158,6 +190,16 @@ func entryKindToNodeKind(entry parser.Entry) graph.NodeKind {
 		return graph.KindTrait
 	case "const":
 		return graph.KindConstant
+	case "graph":
+		return graph.KindGraph
+	case "tool":
+		return graph.KindTool
+	case "agent":
+		return graph.KindAgent
+	case "prompt":
+		return graph.KindPrompt
+	case "model":
+		return graph.KindModel
 	default:
 		return graph.KindType
 	}
@@ -199,6 +241,11 @@ func extractFieldNodes(module, typeName string, f parser.Field) []graph.Node {
 			Module:        module,
 			Type:          fieldType,
 			Metadata:      make(map[string]string),
+		}
+		// Tier 4: a @channels field may declare a reducer constraint, e.g.
+		// "reducer: append." — capture it so codegen knows the merge semantics.
+		if reducer := parseReducer(rest); reducer != "" {
+			n.Metadata["reducer"] = reducer
 		}
 		nodes = append(nodes, n)
 	}
@@ -306,6 +353,16 @@ func extractEdges(af *parser.AidFile, nodeIndex map[string]graph.NodeID) []graph
 				}
 			}
 		}
+
+		// Tier 4: agentic/dataflow relationship edges.
+		switch entry.Kind {
+		case "graph":
+			edges = append(edges, extractGraphEdges(module, entry, nodeIndex)...)
+		case "agent":
+			edges = append(edges, extractAgentEdges(module, srcID, entry, nodeIndex)...)
+		case "prompt", "model":
+			edges = append(edges, extractPromptModelEdges(srcID, entry, nodeIndex)...)
+		}
 	}
 
 	// @lock annotations → Acquires edges (function → lock).
@@ -338,6 +395,15 @@ func extractEdges(af *parser.AidFile, nodeIndex map[string]graph.NodeID) []graph
 			for _, fn := range stepFuncs {
 				if targetID, ok := nodeIndex[fn]; ok {
 					edges = append(edges, graph.Edge{Source: wfID, Target: targetID, Kind: graph.EdgeStepOf, Label: fn})
+				}
+			}
+		}
+		// Tier 3: @errors_at maps errors to steps — link the workflow to each
+		// known error type it can produce.
+		if f, ok := wf.Fields["errors_at"]; ok {
+			for _, errType := range extractErrorsAtTypes(f) {
+				if targetID, ok := nodeIndex[errType]; ok {
+					edges = append(edges, graph.Edge{Source: wfID, Target: targetID, Kind: graph.EdgeProducesError, Label: errType})
 				}
 			}
 		}
